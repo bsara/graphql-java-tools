@@ -261,6 +261,134 @@ class AdditionInput {
 }
 ```
 
+In instances where you want partial update functionality (which is likely to be expected
+by those using any GraphQL API), an abstract base object called `GraphQLInput` is provided.
+`GraphQLInput` uses Kotlin's [delegated properties](https://kotlinlang.org/docs/reference/delegated-properties.html)
+to help you to determine which properties in your input object were provided by a client.
+While using delegated properties is very easy in Kotlin, it is, admittedly, quite a bit
+less straight forward in Java _(see below for examples in both Kotlin and Java)_.
+
+Input in Kotlin:
+```kotlin
+class MyInput : GraphQLInput() {
+  var id: Long? by prop()
+  var name: String? by prop()
+  var isActive: Boolean by prop(false)
+}
+```
+
+Input in Java:
+```java
+import com.coxautodev.graphql.tools.GraphQLInput;
+
+class MyInput extends GraphQLInput {
+  private GraphQLInputJavaPropDelegate<Long> idDelegate;
+  private GraphQLInputJavaPropDelegate<String> nameDelegate;
+  private GraphQLInputJavaPropDelegate<Boolean> isActiveDelegate;
+  
+  
+  public MyInput() {
+    this.idDelegate = this.javaProp("id");
+    this.nameDelegate = this.javaProp("name");
+    this.isActiveDelegate = this.javaProp("isActive", Boolean.FALSE);
+  }
+  
+  
+  public Long getId() {
+    return this.idDelegate.getValue(this);
+  }
+  
+  public void setId(Long id) {
+    this.idDelegate.setValue(this, id);
+  }
+  
+  public String getName() {
+    return this.nameDelegate.getValue(this);
+  }
+  
+  public void setName(String name) {
+    this.nameDelegate.setValue(this, name);
+  }
+  
+  public boolean isActive() {
+    return this.isActiveDelegate.getValue(this);
+  }
+  
+  public void setActive(boolean isActive) {
+    this.isActiveDelegate.setValue(this, isActive);
+  }
+}
+```
+
+There is also a static utility function `GraphQLInputUtils.copyFromInput(GraphQLInput, Object[, Map<String, String>])`
+that can be used to easily copy only those values specified by the client from your input
+object to any other object. Reflection is used to determine the mapping of properties from
+your input object to whatever object is given. When a property in your input object doesn't
+match the name of a prop in the object given, you can pass an optional 3rd argument that
+is a `Map` whose keys represent property names in your input and whose values represent
+property names in the object being modified by the copy _(NOTE: you can specify a property
+"path" of the target object and the value from your input will placed accordingly in the
+nested objects found in the property path; see below for an example)_.
+
+GraphQLInput.copyFromInput example:
+
+```java
+import com.coxautodev.graphql.tools.GraphQLInput;
+
+class MyInput extends GraphQLInput {
+  private GraphQLInputJavaPropDelegate<Long> idDelegate;
+  private GraphQLInputJavaPropDelegate<String> fullNameDelegate;
+  private GraphQLInputJavaPropDelegate<Long> nestedObjIdDelegate;
+  
+  // getId()
+  // setId(...)
+  // getFullName()
+  // setFullName(...)
+  // getMyNestedObjId()
+  // setMyNestedObjId(...)
+}
+```
+
+```java
+class MyObject {
+  private Long id;
+  private String name;
+  private MyNestedObj nestedObj; 
+
+  // getId()
+  // setId(...)
+  // getName()
+  // setName(...)
+  // getNestedObj()
+  // setNestedObj(...)
+}
+```
+
+```java
+class MyNestedObj {
+  private Long id;
+  
+  // getId()
+  // setId(...)
+}
+```
+
+```java
+import static com.coxautodev.graphql.tools.GraphQLInputUtils.copyFromInput;
+
+class MyResolver extends GraphQLMutationResolver {
+  
+  public MyObject updateMyObject(MyInput input) {
+    HashMap propMappings = new HashMap<String, String>();
+    propMappings.put("fullName", "name");
+    propMappings.put("nestedObjId", "nestedObj.id"); // A new instance of MyNestedObj will be created if `nestedObj` is `null`
+    
+    return copyFromInput(input, new MyObject(), propMappings);
+  }
+}
+```
+
+
 ### Interfaces and Union Types
 
 GraphQL interface/union types are automatically resolved from the schema and the list of provided classes, and require no extra work outside of the schema.
