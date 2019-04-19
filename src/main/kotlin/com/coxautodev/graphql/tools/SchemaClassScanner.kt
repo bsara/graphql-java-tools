@@ -3,7 +3,9 @@ package com.coxautodev.graphql.tools
 import com.google.common.collect.BiMap
 import com.google.common.collect.HashBiMap
 import com.google.common.collect.Maps
+import graphql.introspection.Introspection
 import graphql.language.Definition
+import graphql.language.DirectiveDefinition
 import graphql.language.FieldDefinition
 import graphql.language.InputObjectTypeDefinition
 import graphql.language.InputValueDefinition
@@ -47,6 +49,7 @@ internal class SchemaClassScanner(initialDictionary: BiMap<String, Class<*>>, al
     private val objectDefinitions = (allDefinitions.filterIsInstance<ObjectTypeDefinition>() - extensionDefinitions)
     private val objectDefinitionsByName = objectDefinitions.associateBy { it.name }
     private val interfaceDefinitionsByName = allDefinitions.filterIsInstance<InterfaceTypeDefinition>().associateBy { it.name }
+    private val directiveDefinitions = allDefinitions.filterIsInstance<DirectiveDefinition>()
 
     private val fieldResolverScanner = FieldResolverScanner(options)
     private val typeClassMatcher = TypeClassMatcher(definitionsByName)
@@ -83,6 +86,7 @@ internal class SchemaClassScanner(initialDictionary: BiMap<String, Class<*>>, al
         scanQueue()
 
         // Loop over all objects scanning each one only once for more objects to discover.
+        // TODO: Add handleDirectiveArgumentTypes
         do {
             do {
                 // Require all implementors of discovered interfaces to be discovered or provided.
@@ -159,6 +163,8 @@ internal class SchemaClassScanner(initialDictionary: BiMap<String, Class<*>>, al
                     ?: provided.description, provided.coercing, listOf(), definition)
         }.associateBy { it.name!! }
 
+        // TODO: Add checks for custom directives wiring objects???
+
         val unusedDefinitions = (definitionsByName.values - observedDefinitions).toSet()
         unusedDefinitions.forEach { definition ->
             log.warn("Schema type was defined but can never be accessed, and can be safely deleted: ${definition.name}")
@@ -176,7 +182,7 @@ internal class SchemaClassScanner(initialDictionary: BiMap<String, Class<*>>, al
         validateRootResolversWereUsed(rootTypeHolder.mutation, fieldResolvers)
         validateRootResolversWereUsed(rootTypeHolder.subscription, fieldResolvers)
 
-        return ScannedSchemaObjects(dictionary, observedDefinitions + extensionDefinitions, scalars, rootInfo, fieldResolversByType.toMap(), unusedDefinitions)
+        return ScannedSchemaObjects(dictionary, observedDefinitions + extensionDefinitions, scalars, directiveDefinitions.toSet(), rootInfo, fieldResolversByType.toMap(), unusedDefinitions)
     }
 
     private fun validateRootResolversWereUsed(rootType: RootType?, fieldResolvers: List<FieldResolver>) {

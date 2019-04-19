@@ -1,5 +1,6 @@
 package com.coxautodev.graphql.tools
 
+import graphql.schema.GraphQLDirective
 import graphql.schema.GraphQLObjectType
 import graphql.schema.GraphQLSchema
 import graphql.schema.GraphQLType
@@ -8,7 +9,7 @@ import graphql.schema.visibility.NoIntrospectionGraphqlFieldVisibility
 /**
  * @author Andrew Potter
  */
-data class SchemaObjects(val query: GraphQLObjectType, val mutation: GraphQLObjectType?, val subscription: GraphQLObjectType?, val dictionary: Set<GraphQLType>) {
+data class SchemaObjects(val query: GraphQLObjectType, val mutation: GraphQLObjectType?, val subscription: GraphQLObjectType?, val directives: Set<GraphQLDirective>, val dictionary: Set<GraphQLType>) {
 
     /**
      * Makes a GraphQLSchema with query, mutation and subscription.
@@ -19,6 +20,7 @@ data class SchemaObjects(val query: GraphQLObjectType, val mutation: GraphQLObje
                 .mutation(mutation)
                 .subscription(subscription)
                 .additionalTypes(dictionary)
+                .additionalDirectives(directives)
 
         if (!introspectionEnabled) {
             builder.fieldVisibility(NoIntrospectionGraphqlFieldVisibility.NO_INTROSPECTION_FIELD_VISIBILITY)

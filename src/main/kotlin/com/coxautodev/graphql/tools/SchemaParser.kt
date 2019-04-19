@@ -5,11 +5,13 @@ import graphql.language.AbstractNode
 import graphql.language.ArrayValue
 import graphql.language.BooleanValue
 import graphql.language.Directive
+import graphql.language.DirectiveDefinition
 import graphql.language.EnumTypeDefinition
 import graphql.language.EnumValue
 import graphql.language.FieldDefinition
 import graphql.language.FloatValue
 import graphql.language.InputObjectTypeDefinition
+import graphql.language.InputValueDefinition
 import graphql.language.IntValue
 import graphql.language.InterfaceTypeDefinition
 import graphql.language.ListType
@@ -70,6 +72,7 @@ class SchemaParser internal constructor(scanResult: ScannedSchemaObjects, privat
     private val dictionary = scanResult.dictionary
     private val definitions = scanResult.definitions
     private val customScalars = scanResult.customScalars
+    private val directiveDefinitions = scanResult.directiveDefinitions
     private val rootInfo = scanResult.rootInfo
     private val fieldResolversByType = scanResult.fieldResolversByType
     private val unusedDefinitions = scanResult.unusedDefinitions
@@ -104,6 +107,7 @@ class SchemaParser internal constructor(scanResult: ScannedSchemaObjects, privat
         val unions = unionDefinitions.map { createUnionObject(it, objects) }
         val inputObjects = inputObjectDefinitions.map { createInputObject(it) }
         val enums = enumDefinitions.map { createEnumObject(it) }
+        val directives = directiveDefinitions.map { createDirectiveObject(it) }
 
         // Assign type resolver to interfaces now that we know all of the object types
         interfaces.forEach { (it.typeResolver as TypeResolverProxy).typeResolver = InterfaceTypeResolver(dictionary.inverse(), it, objects) }
@@ -121,7 +125,7 @@ class SchemaParser internal constructor(scanResult: ScannedSchemaObjects, privat
         val subscription = objects.find { it.name == subscriptionName }
                 ?: if (rootInfo.isSubscriptionRequired()) throw SchemaError("Expected a Subscription object with name '$subscriptionName' but found none!") else null
 
-        return SchemaObjects(query, mutation, subscription, (objects + inputObjects + enums + interfaces + unions).toSet())
+        return SchemaObjects(query, mutation, subscription, directives.toSet(), (objects + inputObjects + enums + interfaces + unions).toSet())
     }
 
     /**
@@ -179,6 +183,20 @@ class SchemaParser internal constructor(scanResult: ScannedSchemaObjects, privat
             }
         }
         return output.toTypedArray()
+    }
+
+    private fun createDirectiveObject(definition: DirectiveDefinition): GraphQLDirective {
+        return GraphQLDirective
+                .newDirective()
+                .name(definition.name)
+                .description(definition.description?.content ?: getDocumentation(definition))
+                .validLocations(*definition.directiveLocations.map { Introspection.DirectiveLocation.valueOf(it.name) }.toTypedArray())
+                .apply {
+                    definition.inputValueDefinitions.forEach { inputValueDefinition ->
+                        argument(directiveGenerator.onArgument(createArgument(inputValueDefinition), DirectiveBehavior.Params(runtimeWiring)))
+                    }
+                }
+                .build()
     }
 
     private fun createInputObject(definition: InputObjectTypeDefinition): GraphQLInputObjectType {
@@ -289,17 +307,21 @@ class SchemaParser internal constructor(scanResult: ScannedSchemaObjects, privat
         getDeprecated(fieldDefinition.directives)?.let { field.deprecate(it) }
         field.type(determineOutputType(fieldDefinition.type))
         fieldDefinition.inputValueDefinitions.forEach { argumentDefinition ->
-            val argumentBuilder = GraphQLArgument.newArgument()
-                    .name(argumentDefinition.name)
-                    .definition(argumentDefinition)
-                    .description(if (argumentDefinition.description != null) argumentDefinition.description.content else getDocumentation(argumentDefinition))
-                    .defaultValue(buildDefaultValue(argumentDefinition.defaultValue))
-                    .type(determineInputType(argumentDefinition.type))
-                    .withDirectives(*buildDirectives(argumentDefinition.directives, setOf(), Introspection.DirectiveLocation.ARGUMENT_DEFINITION))
-            field.argument(directiveGenerator.onArgument(argumentBuilder.build(), DirectiveBehavior.Params(runtimeWiring)))
+            field.argument(directiveGenerator.onArgument(createArgument(argumentDefinition), DirectiveBehavior.Params(runtimeWiring)))
         }
         field.withDirectives(*buildDirectives(fieldDefinition.directives, setOf(), Introspection.DirectiveLocation.FIELD_DEFINITION))
         return field
+    }
+
+    private fun createArgument(definition: InputValueDefinition): GraphQLArgument {
+        return GraphQLArgument.newArgument()
+                .name(definition.name)
+                .definition(definition)
+                .description(definition.description?.content ?: getDocumentation(definition))
+                .defaultValue(buildDefaultValue(definition.defaultValue))
+                .type(determineInputType(definition.type))
+                .withDirectives(*buildDirectives(definition.directives, setOf(), Introspection.DirectiveLocation.ARGUMENT_DEFINITION))
+                .build()
     }
 
     private fun buildDefaultValue(value: Value<*>?): Any? {
